@@ -1,7 +1,7 @@
 import React from "react";
 import { useLocation, useNavigate } from "react-router";
 import { DashboardLayout } from "../components/DashboardLayout";
-import { ArrowLeft, CheckCircle, MessageSquare, Star, ArrowRight } from "lucide-react";
+import { CheckCircle, MessageSquare, Star, ArrowRight } from "lucide-react";
 
 type InterviewResultPayload = {
   summary: string;
@@ -69,18 +69,8 @@ export function InterviewResultPage() {
     <DashboardLayout>
       <div className="p-8 max-w-[800px] mx-auto">
         <div className="mb-6">
-          <div className="flex items-center gap-3 mb-4">
-            <button
-              onClick={() => navigate("/dashboard")}
-              className="p-2 hover:bg-[#F9FAFB] rounded-lg transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5 text-[#6B7280]" />
-            </button>
-            <div>
-              <h1 className="text-[24px] font-semibold text-[#1A1A1A]">AI 인터뷰 결과</h1>
-              <p className="text-[14px] text-[#6B7280]">답변을 기반으로 생성된 분석 리포트입니다.</p>
-            </div>
-          </div>
+          <h1 className="text-[24px] font-semibold text-[#1A1A1A]">BuildMe</h1>
+          <p className="text-[14px] text-[#6B7280]">답변을 기반으로 생성된 분석 리포트입니다.</p>
         </div>
 
         {/* Score Section */}

@@ -104,6 +104,22 @@ export function recordJobVersion(matchScore: number) {
   saveState(next)
 }
 
+export function decrementJobVersion(nextLastMatchScore?: number | null) {
+  const state = loadState()
+  const totalJobVersions = Math.max(0, state.summary.totalJobVersions - 1)
+  const lastMatchScore =
+    totalJobVersions === 0 ? null : nextLastMatchScore === undefined ? state.summary.lastMatchScore : nextLastMatchScore
+  const next: DashboardState = {
+    ...state,
+    summary: {
+      ...state.summary,
+      totalJobVersions,
+      lastMatchScore,
+    },
+  }
+  saveState(next)
+}
+
 export function resetSummary() {
   const state = loadState()
   const next: DashboardState = {

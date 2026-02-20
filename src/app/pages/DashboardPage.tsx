@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { DashboardLayout } from "../components/DashboardLayout";
 import { ArrowRight, TrendingUp, FileText, Clock, Plus, Trash2 } from "lucide-react";
-import { getDashboardState, removeActivity } from "../../lib/dashboardState";
+import { decrementJobVersion, getDashboardState, removeActivity } from "../../lib/dashboardState";
 import { getCachedOnboardingDraft, loadOnboardingDraft } from "../../lib/onboardingStore";
+import { getPortfolioVersions, removePortfolioVersionByActivityId } from "../../lib/portfolioStore";
 
 export function DashboardPage() {
   const navigate = useNavigate();
@@ -27,6 +28,13 @@ export function DashboardPage() {
   const handleDeleteActivity = (e: React.MouseEvent, activityId: string) => {
     e.preventDefault();
     e.stopPropagation();
+    const target = activities.find((item) => item.id === activityId);
+    if (target?.type === "job_match") {
+      removePortfolioVersionByActivityId(activityId);
+      const remaining = getPortfolioVersions();
+      const nextLastScore = remaining[0]?.matchScore ?? null;
+      decrementJobVersion(nextLastScore);
+    }
     removeActivity(activityId);
     refreshState();
   };
