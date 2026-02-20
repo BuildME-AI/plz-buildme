@@ -15,6 +15,8 @@ import { OnboardingStep2 } from "./pages/onboarding/OnboardingStep2";
 import { OnboardingStep3 } from "./pages/onboarding/OnboardingStep3";
 import { OnboardingStep4 } from "./pages/onboarding/OnboardingStep4";
 import { OnboardingStep5 } from "./pages/onboarding/OnboardingStep5";
+import { OnboardingStep6 } from "./pages/onboarding/OnboardingStep6";
+import { OnboardingStep7 } from "./pages/onboarding/OnboardingStep7";
 
 export const router = createBrowserRouter([
   {
@@ -44,6 +46,14 @@ export const router = createBrowserRouter([
   {
     path: "/onboarding/step5",
     Component: OnboardingStep5,
+  },
+  {
+    path: "/onboarding/step6",
+    Component: OnboardingStep6,
+  },
+  {
+    path: "/onboarding/step7",
+    Component: OnboardingStep7,
   },
   {
     path: "/dashboard",

@@ -1,8 +1,11 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { DashboardLayout } from "../components/DashboardLayout";
 import { LoadingSpinner } from "../components/LoadingSpinner";
 import { Sparkles, Send, ArrowLeft } from "lucide-react";
+import { apiFetch } from "../../lib/api";
+import { useAuth } from "../../lib/auth";
+import { addActivity, recordAnalysis } from "../../lib/dashboardState";
 
 type ChatMsg = { role: "ai" | "user"; text: string };
 type StepKey = (typeof STEP_KEYS)[number];
@@ -17,6 +20,8 @@ type InterviewResultPayload = {
   score: number;
   level: "상" | "중" | "하";
   questions: string[];
+  specificityScore: number;
+  impactScore: number;
 };
 
 const STEP_KEYS = ["company", "role", "duration", "problem", "action", "result"] as const;
@@ -45,6 +50,15 @@ const RECOMMENDED_QUESTIONS_BY_STEP: Record<StepKey, string[]> = {
   problem: ["해결하려던 문제가 비즈니스에 어떤 영향을 주었는지 말해 주세요."],
   action: ["본인이 직접 실행한 행동을 우선순위 순으로 설명해 주세요."],
   result: ["성과를 전/후 수치(%, 시간, 비용)로 비교해 설명해 주세요."],
+};
+
+const STEP_ALT_QUESTIONS: Record<StepKey, string[]> = {
+  company: ["어떤 회사/조직에서 해당 경험을 했나요?", "프로젝트가 진행된 조직 환경을 설명해 주세요."],
+  role: ["그 경험에서 본인의 핵심 역할은 무엇이었나요?", "직접 책임진 업무 범위를 알려주세요."],
+  duration: ["해당 경험은 어느 기간 동안 진행됐나요?", "시작/종료 시점을 기준으로 기간을 설명해 주세요."],
+  problem: ["해결하려던 문제를 한 문장으로 정의해 주세요.", "당시 가장 시급했던 과제는 무엇이었나요?"],
+  action: ["문제 해결을 위해 직접 실행한 행동을 말해 주세요.", "본인이 주도한 실행 단계를 순서대로 설명해 주세요."],
+  result: ["결과가 어떻게 달라졌나요? 가능하면 수치로 말해 주세요.", "성과를 전후 비교 형태로 설명해 주세요."],
 };
 
 const initStepRecord = <T,>(initial: T): Record<StepKey, T> =>
@@ -85,25 +99,40 @@ const evaluateAnswer = (step: StepKey, text: string): StepEvaluation => {
   return { score, isSufficient, missingPoints };
 };
 
-const buildFollowUpQuestion = (step: StepKey, missingPoints: string[]) => {
+const buildFollowUpQuestion = (step: StepKey, missingPoints: string[], askedQuestions: Set<string>) => {
+  const candidates: string[] = [];
   if (missingPoints.some((item) => item.includes("수치"))) {
-    return "성과를 숫자로 표현해 주실 수 있나요? (예: 처리시간 30% 단축, 매출 15% 증가)";
+    candidates.push(
+      "성과를 숫자로 표현해 주실 수 있나요? (예: 처리시간 30% 단축, 매출 15% 증가)",
+      "정량 근거를 한 가지 이상 제시해 주세요. (%, 시간, 비용, 건수 등)",
+    );
   }
   if (missingPoints.some((item) => item.includes("역할"))) {
-    return "해당 경험에서 본인이 직접 맡았던 책임과 기여를 한 문장으로 먼저 말해 주세요.";
+    candidates.push(
+      "해당 경험에서 본인이 직접 맡았던 책임과 기여를 한 문장으로 먼저 말해 주세요.",
+      "팀 내 본인 기여도를 역할 중심으로 구체적으로 말해 주세요.",
+    );
   }
   if (missingPoints.some((item) => item.includes("기간"))) {
-    return "해당 경험의 기간을 년/월 또는 주 단위로 구체적으로 알려주세요.";
+    candidates.push(
+      "해당 경험의 기간을 년/월 또는 주 단위로 구체적으로 알려주세요.",
+      "언제 시작해서 언제 끝났는지 기간을 정확히 알려주세요.",
+    );
   }
-  return pickRandom(MOCK_FOLLOW_UPS[step] || ["조금 더 구체적으로 말씀해 주실 수 있나요?"]);
+  candidates.push(...(MOCK_FOLLOW_UPS[step] || []), "조금 더 구체적으로 말씀해 주실 수 있나요?");
+  const unasked = candidates.find((q) => !askedQuestions.has(q));
+  return unasked ?? `${STEP_LABELS[step]} 관련 근거를 하나 더 보강해 주세요.`;
 };
+
+const clampScore = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
 
 export function InterviewPage() {
   const navigate = useNavigate();
+  const { user, loading: authLoading } = useAuth();
   const [sessionId, setSessionId] = useState<string | null>(() => localStorage.getItem("buildme.sessionId"));
+  const [experienceId, setExperienceId] = useState<string | null>(() => localStorage.getItem("buildme.experienceId"));
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [currentQuestion, setCurrentQuestion] = useState("");
-  const [stepInput, setStepInput] = useState("");
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [experienceText, setExperienceText] = useState("");
@@ -112,11 +141,13 @@ export function InterviewPage() {
   const [isSending, setIsSending] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
+  const [completeError, setCompleteError] = useState<string | null>(null);
   const [stepAnswers, setStepAnswers] = useState<Record<StepKey, string>>(() => initStepRecord(""));
   const [followUpCountByStep, setFollowUpCountByStep] = useState<Record<StepKey, number>>(() => initStepRecord(0));
   const [stepEvaluations, setStepEvaluations] = useState<Record<StepKey, StepEvaluation>>(() =>
     initStepRecord({ score: 50, isSufficient: false, missingPoints: ["답변이 입력되지 않았습니다"] }),
   );
+  const askedQuestionsRef = useRef<Set<string>>(new Set());
   const currentProgress = useMemo(() => progress, [progress]);
 
   const currentStepKey = STEP_KEYS[currentStepIndex];
@@ -124,9 +155,41 @@ export function InterviewPage() {
 
   const startInterview = async () => {
     if (!experienceText.trim()) return;
+    if (authLoading) return;
+    if (!user) {
+      setStartError("로그인 상태가 아니어서 경험관리에 저장할 수 없습니다. 로그인 후 다시 시도해 주세요.");
+      return;
+    }
     setStartError(null);
+    setCompleteError(null);
     setIsStarting(true);
     try {
+      const trimmed = experienceText.trim();
+      const fallbackTitle = trimmed.split("\n")[0].slice(0, 60) || "AI 인터뷰 경험";
+
+      // 인터뷰 시작 시 경험 관리에도 자동 등록
+      try {
+        const expRes = await apiFetch<{ experience: { id: string } }>("/experiences", {
+          method: "POST",
+          body: JSON.stringify({
+            title: fallbackTitle,
+            sourceType: "text",
+            sourceText: trimmed,
+          }),
+        });
+        if (expRes?.experience?.id) {
+          setExperienceId(expRes.experience.id);
+          localStorage.setItem("buildme.experienceId", expRes.experience.id);
+        } else {
+          throw new Error("경험 ID를 받지 못했습니다.");
+        }
+      } catch (e: any) {
+        const reason = typeof e?.message === "string" && e.message.trim() ? e.message.trim() : "원인 미확인";
+        setStartError(`경험 초안 저장 실패: ${reason}`);
+        setIsStarting(false);
+        return;
+      }
+
       // 백엔드 없이 프론트엔드 시뮬레이션으로 전환
       await new Promise((resolve) => setTimeout(resolve, 1500));
       
@@ -141,7 +204,10 @@ export function InterviewPage() {
       setStepEvaluations(
         initStepRecord({ score: 50, isSufficient: false, missingPoints: ["답변이 입력되지 않았습니다"] }),
       );
-      setMessages([{ role: "ai", text: `반갑습니다. 입력해주신 경험을 바탕으로 인터뷰를 진행하겠습니다.\n\n먼저, ${STEP_LABELS.company}` }]);
+      askedQuestionsRef.current.clear();
+      const firstQuestion = STEP_LABELS.company;
+      askedQuestionsRef.current.add(firstQuestion);
+      setMessages([{ role: "ai", text: `반갑습니다. 입력해주신 경험을 바탕으로 인터뷰를 진행하겠습니다.\n\n먼저, ${firstQuestion}` }]);
     } catch (e: any) {
       console.error("Interview start error:", e);
       setStartError("인터뷰 시작 중 오류가 발생했습니다.");
@@ -170,7 +236,7 @@ export function InterviewPage() {
 
     // 답변이 부족하면 역질문으로 보완 유도 (최대 2회)
     if (!evaluation.isSufficient && stepFollowUpCount < 2) {
-      nextMessage = buildFollowUpQuestion(currentKey, evaluation.missingPoints);
+      nextMessage = buildFollowUpQuestion(currentKey, evaluation.missingPoints, askedQuestionsRef.current);
       setFollowUpCountByStep((prev) => ({ ...prev, [currentKey]: prev[currentKey] + 1 }));
     } else {
       // 충분하거나 역질문 한도 도달 시 다음 단계로 이동
@@ -181,9 +247,17 @@ export function InterviewPage() {
         nextMessage = "모든 인터뷰 질문이 완료되었습니다. 답변을 분석해 결과 화면으로 이동합니다.";
       } else {
         const nextKey = STEP_KEYS[nextStepIndex];
-        nextMessage = `감사합니다. 다음으로, ${STEP_LABELS[nextKey as keyof typeof STEP_LABELS]}`;
+        const primaryQuestion = STEP_LABELS[nextKey as keyof typeof STEP_LABELS];
+        const nextQuestion =
+          !askedQuestionsRef.current.has(primaryQuestion)
+            ? primaryQuestion
+            : STEP_ALT_QUESTIONS[nextKey].find((q) => !askedQuestionsRef.current.has(q)) ?? primaryQuestion;
+        nextMessage = `감사합니다. 다음으로, ${nextQuestion}`;
       }
     }
+
+    // AI가 이미 던진 질문은 재사용하지 않도록 추적
+    askedQuestionsRef.current.add(nextMessage.replace("감사합니다. 다음으로, ", "").trim());
 
     setMessages((prev) => [...prev, { role: "ai", text: nextMessage }]);
 
@@ -201,14 +275,6 @@ export function InterviewPage() {
     }
 
     setIsSending(false);
-  };
-
-  const sendStepAnswer = async () => {
-    if (!sessionId || !stepInput.trim()) return;
-    const text = stepInput.trim();
-    setStepInput("");
-    setMessages((prev) => [...prev, { role: "user", text }]);
-    await processMockResponse(text);
   };
 
   const sendChatMessage = async () => {
@@ -259,7 +325,26 @@ export function InterviewPage() {
       ),
     ).slice(0, 4);
 
-    return { summary, feedback, score: avgScore, level, questions };
+    // "AI 기준형" 세부분석 점수 계산:
+    // - 구체성: 역할/기간/문제/행동 항목의 구체화 수준 평균
+    // - 성과 중심: 결과 항목 점수 + 수치 근거 보정
+    const specificityBase =
+      (evaluations.role.score + evaluations.duration.score + evaluations.problem.score + evaluations.action.score) / 4;
+    const impactBase = evaluations.result.score;
+    const resultText = answers.result || "";
+    const hasStrongMetric = /(\d+%|\d+\s*(명|건|원|만원|억원|배|일|주|월)|증가|감소|향상|개선|절감|달성)/.test(resultText);
+    const impactScore = clampScore(impactBase + (hasStrongMetric ? 8 : -6));
+    const specificityScore = clampScore(specificityBase);
+
+    return {
+      summary,
+      feedback,
+      score: avgScore,
+      level,
+      questions,
+      specificityScore,
+      impactScore,
+    };
   };
 
   const handleFinish = async (
@@ -267,18 +352,64 @@ export function InterviewPage() {
     evaluations: Record<StepKey, StepEvaluation>,
   ) => {
     if (!sessionId) return;
+    setCompleteError(null);
     setIsCompleting(true);
 
     // Mock completion
-    setTimeout(() => {
+    setTimeout(async () => {
       const result = buildInterviewResult(answers, evaluations);
+      const summaryText = result.summary.replace(/\n/g, " ").trim();
+      const finalTitle = summaryText.slice(0, 60) || "AI 인터뷰 경험";
+      const mergedSource = [
+        `[원본 입력]\n${experienceText.trim()}`,
+        "[인터뷰 핵심 요약]\n" + result.summary,
+      ].join("\n\n");
+
+      // 완료 시점에 같은 경험 레코드를 업데이트(없으면 fallback 생성)
+      try {
+        if (experienceId) {
+          await apiFetch<{ experience: { id: string } }>(`/experiences/${experienceId}`, {
+            method: "PUT",
+            body: JSON.stringify({
+              title: finalTitle,
+              sourceText: mergedSource,
+            }),
+          });
+        } else {
+          const fallbackCreate = await apiFetch<{ experience: { id: string } }>("/experiences", {
+            method: "POST",
+            body: JSON.stringify({
+              title: finalTitle,
+              sourceType: "text",
+              sourceText: mergedSource,
+            }),
+          });
+          if (fallbackCreate?.experience?.id) {
+            setExperienceId(fallbackCreate.experience.id);
+            localStorage.setItem("buildme.experienceId", fallbackCreate.experience.id);
+          }
+        }
+      } catch (e: any) {
+        const reason = typeof e?.message === "string" && e.message.trim() ? e.message.trim() : "원인 미확인";
+        setCompleteError(`경험관리 반영 실패: ${reason}`);
+      }
 
       // 3. Clean up local storage and state
       localStorage.removeItem("buildme.sessionId");
+      localStorage.removeItem("buildme.experienceId");
       const mockStructuredId = "local-structured-" + Date.now();
       localStorage.setItem("buildme.structuredId", mockStructuredId);
       localStorage.setItem("buildme.interviewResult", JSON.stringify(result));
+      // 서버 구조화 결과가 없더라도 분석 리포트 통계는 즉시 반영
+      recordAnalysis(result.score);
+      addActivity({
+        id: `analysis-local-${Date.now()}`,
+        type: "analysis",
+        title: "AI 인터뷰 분석 완료",
+        createdAt: new Date().toISOString(),
+      });
       setSessionId(null);
+      setExperienceId(null);
       
       // 4. Navigate to the new result page with data
       navigate("/interview-result", { state: result });
@@ -348,14 +479,30 @@ export function InterviewPage() {
             )}
             <div className="mt-4 flex justify-end">
               <button
-                disabled={isStarting || !experienceText.trim()}
+                disabled={isStarting || authLoading || !user || !experienceText.trim()}
                 onClick={startInterview}
                 className="bg-[#0052FF] disabled:bg-[#9CB7FF] disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-medium text-[15px] transition-colors"
               >
                 {isStarting ? "시작 중..." : "AI 인터뷰 시작"}
               </button>
             </div>
+            {!authLoading && !user && (
+              <p className="mt-3 text-[13px] text-[#6B7280]">
+                경험관리 저장을 위해 로그인 후 이용해 주세요.{" "}
+                <button
+                  type="button"
+                  onClick={() => navigate("/login")}
+                  className="text-[#0052FF] underline"
+                >
+                  로그인하러 가기
+                </button>
+              </p>
+            )}
           </div>
+        )}
+
+        {completeError && (
+          <p className="mb-4 text-[13px] text-[#DC2626] bg-[#FEF2F2] rounded-lg px-3 py-2">{completeError}</p>
         )}
 
         {sessionId && !isStepComplete && (
@@ -363,25 +510,7 @@ export function InterviewPage() {
             <p className="text-[13px] text-[#0052FF] font-medium mb-1">
               {currentStepIndex + 1}단계 · {currentStepKey}
             </p>
-            <h2 className="text-[18px] font-semibold text-[#1A1A1A] mb-4">{currentQuestion}</h2>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={stepInput}
-                onChange={(e) => setStepInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && sendStepAnswer()}
-                placeholder="답변을 입력하세요"
-                disabled={isSending}
-                className="flex-1 bg-white border border-[#D1D5DB] rounded-lg px-4 py-3 text-[14px] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#0052FF]"
-              />
-              <button
-                disabled={isSending || !stepInput.trim()}
-                onClick={sendStepAnswer}
-                className="bg-[#0052FF] disabled:bg-[#9CB7FF] text-white px-6 py-3 rounded-lg font-medium text-[14px]"
-              >
-                제출
-              </button>
-            </div>
+            <h2 className="text-[18px] font-semibold text-[#1A1A1A]">{currentQuestion}</h2>
           </div>
         )}
 

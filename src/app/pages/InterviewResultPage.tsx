@@ -9,6 +9,8 @@ type InterviewResultPayload = {
   score: number;
   level: "상" | "중" | "하";
   questions: string[];
+  specificityScore?: number;
+  impactScore?: number;
 };
 
 const getMockResultData = (): InterviewResultPayload => ({
@@ -24,6 +26,8 @@ const getMockResultData = (): InterviewResultPayload => ({
     "이 경험을 통해 무엇을 배웠나요?",
     "가장 어려웠던 점은 무엇이었고, 어떻게 극복했나요?",
   ],
+  specificityScore: 84,
+  impactScore: 80,
 });
 
 const getSavedResultData = (): InterviewResultPayload | null => {
@@ -37,7 +41,9 @@ const getSavedResultData = (): InterviewResultPayload | null => {
       Array.isArray(parsed?.feedback) &&
       typeof parsed?.score === "number" &&
       (parsed?.level === "상" || parsed?.level === "중" || parsed?.level === "하") &&
-      Array.isArray(parsed?.questions)
+      Array.isArray(parsed?.questions) &&
+      (parsed?.specificityScore == null || typeof parsed?.specificityScore === "number") &&
+      (parsed?.impactScore == null || typeof parsed?.impactScore === "number")
     ) {
       return parsed;
     }
@@ -55,7 +61,9 @@ export function InterviewResultPage() {
   // location.state가 없으면 (페이지 새로고침 등) localStorage를 우선 확인합니다.
   const routeState = location.state as InterviewResultPayload | null;
   const fallback = getSavedResultData() || getMockResultData();
-  const { summary, feedback, score, level, questions } = routeState || fallback;
+  const { summary, feedback, score, level, questions, specificityScore, impactScore } = routeState || fallback;
+  const resolvedSpecificity = typeof specificityScore === "number" ? Math.round(specificityScore) : Math.max(0, Math.min(100, score - 4));
+  const resolvedImpact = typeof impactScore === "number" ? Math.round(impactScore) : Math.max(0, Math.min(100, score - 2));
 
   return (
     <DashboardLayout>
@@ -92,6 +100,23 @@ export function InterviewResultPage() {
         </div>
 
         <div className="space-y-6">
+          {/* Detailed Analysis */}
+          <div className="bg-white border border-[#E5E7EB] rounded-lg p-6">
+            <h3 className="text-[16px] font-semibold text-[#1A1A1A] mb-4">세부 분석</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-[#FAFAFA] rounded-lg p-4">
+                <p className="text-[13px] text-[#6B7280] mb-1">구체성</p>
+                <p className="text-[28px] font-semibold text-[#1A1A1A]">{resolvedSpecificity}점</p>
+                <p className="text-[12px] text-[#6B7280] mt-1">역할/기간/행동의 명확성 기반</p>
+              </div>
+              <div className="bg-[#FAFAFA] rounded-lg p-4">
+                <p className="text-[13px] text-[#6B7280] mb-1">성과 중심</p>
+                <p className="text-[28px] font-semibold text-[#1A1A1A]">{resolvedImpact}점</p>
+                <p className="text-[12px] text-[#6B7280] mt-1">결과 근거/수치 표현 강도 기반</p>
+              </div>
+            </div>
+          </div>
+
           {/* Summary Section */}
           <div className="bg-white border border-[#E5E7EB] rounded-lg p-6">
             <h3 className="text-[16px] font-semibold text-[#1A1A1A] mb-4">경험 요약 (STAR 기반)</h3>

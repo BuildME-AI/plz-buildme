@@ -7,7 +7,7 @@ type OnboardingHeaderProps = {
   onBack?: () => void;
 };
 
-export function OnboardingHeader({ step, totalSteps = 5, onBack }: OnboardingHeaderProps) {
+export function OnboardingHeader({ step, totalSteps = 7, onBack }: OnboardingHeaderProps) {
   const navigate = useNavigate();
   const progressPercent = (step / totalSteps) * 100;
 

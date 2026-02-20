@@ -12,6 +12,11 @@ export function Header() {
     else navigate("/login?redirect=/onboarding/step1");
   };
 
+  const handleDashboard = () => {
+    if (user) navigate("/dashboard");
+    else navigate("/login?redirect=/dashboard");
+  };
+
   return (
     <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-[#E5E7EB]">
       <div className="max-w-[1200px] mx-auto px-8 py-4 flex items-center justify-between">
@@ -26,6 +31,12 @@ export function Header() {
 
         {/* Navigation */}
         <nav className="flex items-center gap-8">
+          <button
+            onClick={handleDashboard}
+            className="text-[15px] text-[#6B7280] hover:text-[#1A1A1A] transition-colors"
+          >
+            대시보드
+          </button>
           <a href="#features" className="text-[15px] text-[#6B7280] hover:text-[#1A1A1A] transition-colors">
             기능
           </a>

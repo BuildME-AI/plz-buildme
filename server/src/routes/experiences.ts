@@ -9,9 +9,9 @@ export async function experiencesRoutes(app: FastifyInstance) {
     const supabase = createSupabaseAdmin()
     const { data, error } = await supabase
       .from('experiences')
-      .select('id,title,source_type,created_at,updated_at')
+      .select('id,title,source_type,source_text,source_url,created_at,updated_at')
       .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
+      .order('updated_at', { ascending: false })
     if (error) throw error
     return { experiences: data ?? [] }
   })
@@ -44,6 +44,48 @@ export async function experiencesRoutes(app: FastifyInstance) {
       .single()
     if (error) throw error
     return { experience: data }
+  })
+
+  app.put('/experiences/:id', async (req) => {
+    const user = await requireUser(req)
+    const Params = z.object({ id: z.string().uuid() })
+    const Body = z
+      .object({
+        title: z.string().min(1).max(200).optional(),
+        sourceText: z.string().min(1).max(20000).optional(),
+      })
+      .refine((b) => b.title != null || b.sourceText != null, {
+        message: '수정할 필드가 필요합니다.',
+      })
+
+    const { id } = Params.parse(req.params)
+    const body = Body.parse(req.body)
+    const supabase = createSupabaseAdmin()
+
+    const updatePayload: Record<string, unknown> = {}
+    if (body.title != null) updatePayload.title = body.title
+    if (body.sourceText != null) updatePayload.source_text = body.sourceText
+
+    const { data, error } = await supabase
+      .from('experiences')
+      .update(updatePayload)
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .select('id,title,source_type,source_text,source_url,created_at,updated_at')
+      .single()
+    if (error) throw error
+    return { experience: data }
+  })
+
+  app.delete('/experiences/:id', async (req) => {
+    const user = await requireUser(req)
+    const Params = z.object({ id: z.string().uuid() })
+    const { id } = Params.parse(req.params)
+    const supabase = createSupabaseAdmin()
+
+    const { error } = await supabase.from('experiences').delete().eq('id', id).eq('user_id', user.id)
+    if (error) throw error
+    return { ok: true }
   })
 }
 

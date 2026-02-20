@@ -3,11 +3,13 @@ import { useNavigate } from "react-router";
 import { DashboardLayout } from "../components/DashboardLayout";
 import { ArrowRight, TrendingUp, FileText, Clock, Plus, Trash2 } from "lucide-react";
 import { getDashboardState, removeActivity } from "../../lib/dashboardState";
+import { getCachedOnboardingDraft, loadOnboardingDraft } from "../../lib/onboardingStore";
 
 export function DashboardPage() {
   const navigate = useNavigate();
   const [summary, setSummary] = useState(() => getDashboardState().summary);
   const [activities, setActivities] = useState(() => getDashboardState().activities);
+  const [onboarding, setOnboarding] = useState(() => getCachedOnboardingDraft());
 
   const refreshState = () => {
     const state = getDashboardState();
@@ -17,6 +19,9 @@ export function DashboardPage() {
 
   useEffect(() => {
     refreshState();
+    void loadOnboardingDraft().then((draft) => {
+      setOnboarding(draft);
+    });
   }, []);
 
   const handleDeleteActivity = (e: React.MouseEvent, activityId: string) => {
@@ -109,6 +114,33 @@ export function DashboardPage() {
           </div>
         </div>
 
+        <div className="bg-white border border-[#E5E7EB] rounded-lg p-6 mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-[18px] font-semibold text-[#1A1A1A]">온보딩 요약</h2>
+            <span className="text-[13px] text-[#6B7280]">완료 단계 {onboarding.completedStep}/7</span>
+          </div>
+          <div className="grid grid-cols-3 gap-4 mb-4">
+            <div className="bg-[#FAFAFA] rounded-lg p-4">
+              <p className="text-[12px] text-[#6B7280] mb-1">이름</p>
+              <p className="text-[14px] font-medium text-[#1A1A1A]">{onboarding.payload.name || "-"}</p>
+            </div>
+            <div className="bg-[#FAFAFA] rounded-lg p-4">
+              <p className="text-[12px] text-[#6B7280] mb-1">목표 직무</p>
+              <p className="text-[14px] font-medium text-[#1A1A1A]">{onboarding.payload.targetJob || "-"}</p>
+            </div>
+            <div className="bg-[#FAFAFA] rounded-lg p-4">
+              <p className="text-[12px] text-[#6B7280] mb-1">활용 목적</p>
+              <p className="text-[14px] font-medium text-[#1A1A1A]">{purposeLabel(onboarding.payload.purpose)}</p>
+            </div>
+          </div>
+          <p className="text-[14px] text-[#4B5563] leading-[1.6]">
+            {onboarding.payload.experience
+              ? onboarding.payload.experience.slice(0, 180)
+              : "아직 저장된 경험 요약이 없습니다. 온보딩에서 경험을 입력해 주세요."}
+            {onboarding.payload.experience.length > 180 ? "..." : ""}
+          </p>
+        </div>
+
         {/* Recent Activity */}
         <div>
           <h2 className="text-[18px] font-semibold text-[#1A1A1A] mb-4">최근 활동</h2>
@@ -152,4 +184,12 @@ export function DashboardPage() {
       </div>
     </DashboardLayout>
   );
+}
+
+function purposeLabel(purpose: string) {
+  if (purpose === "job") return "취업 지원";
+  if (purpose === "career") return "이직 준비";
+  if (purpose === "freelance") return "프리랜서 / 외주";
+  if (purpose === "branding") return "개인 브랜딩";
+  return "-";
 }

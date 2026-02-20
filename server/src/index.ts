@@ -1,4 +1,4 @@
-import 'dotenv/config'
+import dotenv from 'dotenv'
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import { getEnv } from './lib/env'
@@ -10,6 +10,11 @@ import { jobMatchRoutes } from './routes/jobMatch'
 import { structuredRoutes } from './routes/structured'
 import { plansRoutes } from './routes/plans'
 import { analyticsRoutes } from './routes/analytics'
+import { onboardingRoutes } from './routes/onboarding'
+
+// Load both .env and .env.local for local development.
+dotenv.config()
+dotenv.config({ path: '.env.local', override: true })
 
 const env = getEnv()
 
@@ -44,6 +49,7 @@ await app.register(jobMatchRoutes, { prefix: '/api/v1' })
 await app.register(structuredRoutes, { prefix: '/api/v1' })
 await app.register(plansRoutes, { prefix: '/api/v1' })
 await app.register(analyticsRoutes, { prefix: '/api/v1' })
+await app.register(onboardingRoutes, { prefix: '/api/v1' })
 
 await app.listen({ port: env.SERVER_PORT, host: '0.0.0.0' })
 app.log.info({ port: env.SERVER_PORT }, 'API server listening')

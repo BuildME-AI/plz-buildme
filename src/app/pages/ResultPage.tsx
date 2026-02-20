@@ -5,15 +5,23 @@ import { CheckCircle2, ArrowRight, Edit3, ArrowLeft } from "lucide-react";
 import { apiFetch } from "../../lib/api";
 import { LoadingSpinner } from "../components/LoadingSpinner";
 import { addActivity, recordAnalysis } from "../../lib/dashboardState";
+import { getCachedOnboardingDraft, loadOnboardingDraft } from "../../lib/onboardingStore";
 
 export function ResultPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [structured, setStructured] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+  const [onboarding, setOnboarding] = useState(() => getCachedOnboardingDraft());
 
   const structuredId =
     (location.state as any)?.structuredId ?? localStorage.getItem("buildme.structuredId");
+
+  useEffect(() => {
+    void loadOnboardingDraft().then((draft) => {
+      setOnboarding(draft);
+    });
+  }, []);
 
   useEffect(() => {
     if (!structuredId) {
@@ -76,6 +84,20 @@ export function ResultPage() {
         </div>
 
         {/* STAR Structure Card */}
+        <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg p-5 mb-6">
+          <h2 className="text-[16px] font-semibold text-[#1A1A1A] mb-2">온보딩 기반 요약</h2>
+          <p className="text-[14px] text-[#4B5563] mb-1">
+            <span className="font-medium">이름:</span> {onboarding.payload.name || "-"} /{" "}
+            <span className="font-medium">직무:</span> {onboarding.payload.targetJob || "-"}
+          </p>
+          <p className="text-[14px] text-[#4B5563] leading-[1.6]">
+            {onboarding.payload.achievement
+              ? onboarding.payload.achievement.slice(0, 180)
+              : "강조 성과가 입력되지 않았습니다."}
+            {onboarding.payload.achievement.length > 180 ? "..." : ""}
+          </p>
+        </div>
+
         <div className="bg-white border border-[#E5E7EB] rounded-lg p-8 mb-6">
           <div className="space-y-6">
             {/* Situation */}

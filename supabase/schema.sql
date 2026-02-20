@@ -23,6 +23,16 @@ create table if not exists public.profiles (
   updated_at timestamptz not null default now()
 );
 
+-- Onboarding draft/profile answers (step-based)
+create table if not exists public.onboarding_profiles (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  payload jsonb not null default '{}'::jsonb,
+  completed_step int not null default 0,
+  completed_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 -- Usage events for rate limiting / billing metrics
 create table if not exists public.usage_events (
   id uuid primary key default gen_random_uuid(),
@@ -138,6 +148,12 @@ begin
     for each row execute function public.set_updated_at();
   end if;
 
+  if not exists (select 1 from pg_trigger where tgname = 'onboarding_profiles_set_updated_at') then
+    create trigger onboarding_profiles_set_updated_at
+    before update on public.onboarding_profiles
+    for each row execute function public.set_updated_at();
+  end if;
+
   if not exists (select 1 from pg_trigger where tgname = 'experiences_set_updated_at') then
     create trigger experiences_set_updated_at
     before update on public.experiences
@@ -159,6 +175,7 @@ end $$;
 
 -- RLS
 alter table public.profiles enable row level security;
+alter table public.onboarding_profiles enable row level security;
 alter table public.usage_events enable row level security;
 alter table public.experiences enable row level security;
 alter table public.interview_sessions enable row level security;
@@ -180,6 +197,13 @@ begin
   end if;
   if not exists (select 1 from pg_policies where tablename = 'profiles' and policyname = 'profiles_update_own') then
     create policy profiles_update_own on public.profiles for update
+      using (user_id = auth.uid())
+      with check (user_id = auth.uid());
+  end if;
+
+  -- onboarding_profiles
+  if not exists (select 1 from pg_policies where tablename = 'onboarding_profiles' and policyname = 'onboarding_profiles_crud_own') then
+    create policy onboarding_profiles_crud_own on public.onboarding_profiles for all
       using (user_id = auth.uid())
       with check (user_id = auth.uid());
   end if;

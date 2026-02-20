@@ -1,25 +1,67 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { DashboardLayout } from "../components/DashboardLayout";
-import { TrendingUp, Target, Award, ArrowLeft, RotateCcw } from "lucide-react";
-import { getDashboardState, resetSummary } from "../../lib/dashboardState";
+import { TrendingUp, Target, Award, ArrowLeft } from "lucide-react";
+import { getDashboardState } from "../../lib/dashboardState";
 import { apiFetch } from "../../lib/api";
+
+type InterviewResultCache = {
+  score?: number;
+  specificityScore?: number;
+  impactScore?: number;
+  feedback?: string[];
+};
 
 export function AnalyticsPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [summary, setSummary] = useState(() => getDashboardState().summary);
   const [improvements, setImprovements] = useState<string[]>([]);
-  const [resetting, setResetting] = useState(false);
+  const [detailedScores, setDetailedScores] = useState({
+    specificity: summary.averageScore || 0,
+    impact: summary.averageScore || 0,
+    jobFit: summary.lastMatchScore ?? 0,
+  });
 
   useEffect(() => {
     setSummary(getDashboardState().summary);
   }, []);
 
+  const applyInterviewFallback = () => {
+    const interviewResultRaw = localStorage.getItem("buildme.interviewResult");
+    if (!interviewResultRaw) {
+      setImprovements([]);
+      return;
+    }
+    try {
+      const parsed = JSON.parse(interviewResultRaw) as InterviewResultCache;
+      setDetailedScores((prev) => ({
+        specificity: typeof parsed.specificityScore === "number" ? Math.round(parsed.specificityScore) : prev.specificity,
+        impact: typeof parsed.impactScore === "number" ? Math.round(parsed.impactScore) : prev.impact,
+        jobFit: prev.jobFit,
+      }));
+      const feedbacks = Array.isArray(parsed.feedback) ? parsed.feedback : [];
+      const suggestions = feedbacks.filter((item) => typeof item === "string" && item.includes("개선"));
+      setImprovements(suggestions);
+      if (typeof parsed.score === "number") {
+        setSummary((prev) => {
+          if (prev.totalAnalyses > 0) return prev;
+          return {
+            ...prev,
+            totalAnalyses: 1,
+            averageScore: Math.round(parsed.score),
+          };
+        });
+      }
+    } catch {
+      setImprovements([]);
+    }
+  };
+
   useEffect(() => {
     const structuredId = (location.state as any)?.structuredId ?? localStorage.getItem("buildme.structuredId");
     if (!structuredId) {
-      setImprovements([]);
+      applyInterviewFallback();
       return;
     }
     apiFetch<{ structured: any }>(`/structured/${structuredId}`)
@@ -29,23 +71,26 @@ export function AnalyticsPage() {
         } else {
           setImprovements([]);
         }
+        // AI 구조화 결과 점수를 세부분석에 직접 반영
+        setDetailedScores({
+          specificity:
+            typeof res.structured.specificity_score === "number"
+              ? Math.round(res.structured.specificity_score)
+              : summary.averageScore || 0,
+          impact:
+            typeof res.structured.impact_score === "number"
+              ? Math.round(res.structured.impact_score)
+              : summary.averageScore || 0,
+          jobFit:
+            typeof res.structured.job_fit_score === "number"
+              ? Math.round(res.structured.job_fit_score)
+              : summary.lastMatchScore ?? 0,
+        });
       })
       .catch(() => {
-        setImprovements([]);
+        applyInterviewFallback();
       });
-  }, [location.state]);
-
-  const handleReset = async () => {
-    setResetting(true);
-    try {
-      await apiFetch<{ ok: boolean }>("/analytics/reset", { method: "POST" });
-      resetSummary();
-      setSummary(getDashboardState().summary);
-      setImprovements([]);
-    } finally {
-      setResetting(false);
-    }
-  };
+  }, [location.state, summary.averageScore, summary.lastMatchScore]);
   return (
     <DashboardLayout>
       <div className="p-8">
@@ -63,14 +108,6 @@ export function AnalyticsPage() {
               <p className="text-[14px] text-[#6B7280]">포트폴리오 품질과 개선 포인트를 확인하세요</p>
             </div>
           </div>
-          <button
-            onClick={handleReset}
-            disabled={resetting}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[#E5E7EB] text-[13px] text-[#6B7280] hover:bg-[#F9FAFB] transition-colors"
-          >
-            <RotateCcw className="w-4 h-4" />
-            세부 분석 초기화
-          </button>
         </div>
 
         {/* Stats Grid */}
@@ -122,9 +159,9 @@ export function AnalyticsPage() {
 
           <div className="space-y-4">
             {[
-              { label: "구체성", score: summary.averageScore || 0, color: "#0052FF" },
-              { label: "성과 중심", score: summary.averageScore || 0, color: "#10B981" },
-              { label: "직무 적합도", score: summary.lastMatchScore ?? 0, color: "#F59E0B" },
+              { label: "구체성", score: detailedScores.specificity || 0, color: "#0052FF" },
+              { label: "성과 중심", score: detailedScores.impact || 0, color: "#10B981" },
+              { label: "직무 적합도", score: detailedScores.jobFit || 0, color: "#F59E0B" },
             ].map((item, index) => (
               <div key={index}>
                 <div className="flex items-center justify-between mb-2">
