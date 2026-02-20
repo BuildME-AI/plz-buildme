@@ -31,7 +31,8 @@ const app = Fastify({
 })
 
 await app.register(cors, {
-  origin: [/^http:\/\/localhost:\d+$/],
+  origin: [/^http:\/\/localhost:\d+$/,
+    "https://buildme-tawny.vercel.app"],
   credentials: true,
 })
 
