@@ -4,6 +4,8 @@ import { DashboardLayout } from "../components/DashboardLayout";
 import { Sparkles, ChevronDown, ArrowRight, ArrowLeft } from "lucide-react";
 import { apiFetch } from "../../lib/api";
 import { addActivity, recordJobVersion } from "../../lib/dashboardState";
+import { addPortfolioVersion } from "../../lib/portfolioStore";
+import { parseStarSections } from "../../lib/star";
 
 type JobOption = {
   id: string;
@@ -268,6 +270,8 @@ export function JobMatchPage() {
       // structuredId가 없거나 로컬 모드일 때도 인터뷰 기반 결정 점수 제공
       if (!structuredId || structuredId.startsWith("local-")) {
         await new Promise((resolve) => setTimeout(resolve, 800));
+        const createdAt = new Date().toISOString();
+        const activityId = `job-local-${Date.now()}`;
         const fixedScore = deterministicLocalMatchScore(interviewFingerprint, job.id);
         const mockResult = {
           match_score: fixedScore,
@@ -275,6 +279,7 @@ export function JobMatchPage() {
           keywords: ["문제해결", "데이터기반", "협업", "주도성", "성과지향"],
           feedback: ["직무 적합도가 높습니다.", "수치적 성과가 명확합니다."],
         };
+        const star = parseStarSections(mockResult.optimized_paragraph || interviewSignal.summary || "");
         setResult(mockResult);
         setJobScores((prev) => {
           const next = { ...prev, [job.id]: fixedScore };
@@ -282,11 +287,26 @@ export function JobMatchPage() {
           return next;
         });
         recordJobVersion(fixedScore);
+        addPortfolioVersion({
+          id: `portfolio-local-${Date.now()}`,
+          title: `${job.label} 맞춤 포트폴리오`,
+          targetRole: job.label,
+          matchScore: fixedScore,
+          situation: star.situation,
+          task: star.task,
+          action: star.action,
+          result: star.result,
+          optimizedParagraph: mockResult.optimized_paragraph,
+          keywords: mockResult.keywords,
+          feedback: mockResult.feedback,
+          activityId,
+          createdAt,
+        });
         addActivity({
-          id: `job-local-${Date.now()}`,
+          id: activityId,
           type: "job_match",
           title: `${job.label} 직무 맞춤 분석`,
-          createdAt: new Date().toISOString(),
+          createdAt,
         });
         setHasAnalyzed(true);
         return;
@@ -303,19 +323,37 @@ export function JobMatchPage() {
       });
       setResult(res.jobVersion);
       if (typeof res.jobVersion.match_score === "number") {
+        const createdAt = new Date().toISOString();
+        const activityId = `job-${res.jobVersion.id ?? Date.now()}`;
+        const star = parseStarSections(res.jobVersion.optimized_paragraph || interviewSignal.summary || "");
         setJobScores((prev) => {
           const next = { ...prev, [job.id]: res.jobVersion.match_score };
           saveMatchCache({ interviewFingerprint, scores: next });
           return next;
         });
         recordJobVersion(res.jobVersion.match_score);
+        addPortfolioVersion({
+          id: `portfolio-${res.jobVersion.id ?? Date.now()}`,
+          title: `${job.label} 맞춤 포트폴리오`,
+          targetRole: job.label,
+          matchScore: res.jobVersion.match_score,
+          situation: star.situation,
+          task: star.task,
+          action: star.action,
+          result: star.result,
+          optimizedParagraph: res.jobVersion.optimized_paragraph,
+          keywords: Array.isArray(res.jobVersion.keywords) ? res.jobVersion.keywords : undefined,
+          feedback: Array.isArray(res.jobVersion.feedback) ? res.jobVersion.feedback : undefined,
+          activityId,
+          createdAt,
+        });
+        addActivity({
+          id: activityId,
+          type: "job_match",
+          title: `${job.label} 직무 맞춤 분석`,
+          createdAt,
+        });
       }
-      addActivity({
-        id: `job-${res.jobVersion.id}`,
-        type: "job_match",
-        title: `${job.label} 직무 맞춤 분석`,
-        createdAt: new Date().toISOString(),
-      });
       setHasAnalyzed(true);
     } finally {
       setLoading(false);

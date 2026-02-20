@@ -1,4 +1,9 @@
 node_modules
+<<<<<<< HEAD
 .env.local
 .env
 .vercel
+=======
+.env
+.env.local
+>>>>>>> 2cb3ff002b35456e65beca099c77180e9a9cc68c

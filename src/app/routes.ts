@@ -10,6 +10,7 @@ import { ExperiencePage } from "./pages/ExperiencePage";
 import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { PricingPage } from "./pages/PricingPage";
+import { MyPage } from "./pages/MyPage";
 import { OnboardingStep1 } from "./pages/onboarding/OnboardingStep1";
 import { OnboardingStep2 } from "./pages/onboarding/OnboardingStep2";
 import { OnboardingStep3 } from "./pages/onboarding/OnboardingStep3";
@@ -58,6 +59,10 @@ export const router = createBrowserRouter([
   {
     path: "/dashboard",
     Component: DashboardPage,
+  },
+  {
+    path: "/mypage",
+    Component: MyPage,
   },
   {
     path: "/experience",

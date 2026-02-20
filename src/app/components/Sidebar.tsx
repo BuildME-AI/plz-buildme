@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from "react-router";
-import { LayoutDashboard, FileText, MessageSquare, Sparkles, BarChart3, Settings, HelpCircle, Home } from "lucide-react";
+import { LayoutDashboard, FileText, MessageSquare, Sparkles, BarChart3, Settings, HelpCircle, Home, User } from "lucide-react";
 import { useEffect, useState } from "react";
 import { apiFetch } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
@@ -85,6 +85,20 @@ export function Sidebar() {
           <Settings className="w-5 h-5" />
           <span>설정</span>
         </button>
+        <Link
+          to="/mypage"
+          className={`
+            w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[14px] transition-colors
+            ${
+              location.pathname === "/mypage"
+                ? "bg-[#EEF2FF] text-[#0052FF] font-medium"
+                : "text-[#6B7280] hover:bg-[#F9FAFB] hover:text-[#1A1A1A]"
+            }
+          `}
+        >
+          <User className="w-5 h-5" />
+          <span>마이페이지</span>
+        </Link>
         <Link
           to="/#faq"
           className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[14px] text-[#6B7280] hover:bg-[#F9FAFB] hover:text-[#1A1A1A] transition-colors"

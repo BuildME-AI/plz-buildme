@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { DashboardLayout } from "../components/DashboardLayout";
 import { Modal } from "../components/Modal";
-import { Download, CheckCircle2, ArrowLeft } from "lucide-react";
+import { Download, CheckCircle2, ArrowLeft, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router";
 import { getCachedOnboardingDraft, loadOnboardingDraft } from "../../lib/onboardingStore";
-import { getDashboardState } from "../../lib/dashboardState";
+import { decrementJobVersion, getDashboardState, removeActivity } from "../../lib/dashboardState";
+import { getPortfolioVersions, removePortfolioVersion, type PortfolioVersion } from "../../lib/portfolioStore";
+import { parseStarSections } from "../../lib/star";
 
 type InterviewResultPayload = {
   summary: string;
@@ -20,12 +22,16 @@ export function PortfolioPage() {
   const [onboarding, setOnboarding] = useState(() => getCachedOnboardingDraft());
   const [interviewResult, setInterviewResult] = useState<InterviewResultPayload | null>(null);
   const [jobFitScore, setJobFitScore] = useState<number>(() => getDashboardState().summary.lastMatchScore ?? 78);
+  const [storedVersions, setStoredVersions] = useState<PortfolioVersion[]>(() => getPortfolioVersions());
+  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
 
   useEffect(() => {
     void loadOnboardingDraft().then((draft) => {
       setOnboarding(draft);
     });
-    setJobFitScore(getDashboardState().summary.lastMatchScore ?? 78);
+    const latestDashboard = getDashboardState();
+    setJobFitScore(latestDashboard.summary.lastMatchScore ?? 78);
+    setStoredVersions(getPortfolioVersions());
     const raw = localStorage.getItem("buildme.interviewResult");
     if (raw) {
       try {
@@ -39,11 +45,64 @@ export function PortfolioPage() {
     }
   }, []);
 
-  const parsedStar = parseStarSummary(interviewResult?.summary ?? "");
-  const usedSituation = parsedStar.situation || onboarding.payload.experience;
-  const usedTask = parsedStar.task;
-  const usedAction = parsedStar.action;
-  const usedResult = parsedStar.result;
+  const allVersions = useMemo(
+    () =>
+      [...storedVersions].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      ),
+    [storedVersions],
+  );
+
+  useEffect(() => {
+    if (!selectedVersionId && allVersions.length > 0) {
+      setSelectedVersionId(allVersions[0].id);
+      return;
+    }
+    if (selectedVersionId && !allVersions.some((version) => version.id === selectedVersionId)) {
+      setSelectedVersionId(allVersions[0]?.id ?? null);
+    }
+  }, [allVersions, selectedVersionId]);
+
+  const selectedVersion = allVersions.find((version) => version.id === selectedVersionId) ?? allVersions[0];
+  const starSourceText = selectedVersion?.optimizedParagraph || interviewResult?.summary || onboarding.payload.experience || "";
+  const parsedStar = parseStarSections(starSourceText);
+  const usedSituation =
+    selectedVersion?.situation ||
+    parsedStar.situation ||
+    onboarding.payload.experience ||
+    "프로젝트 진행 중 해결이 필요한 상황이 있었습니다.";
+  const usedTask =
+    selectedVersion?.task ||
+    parsedStar.task ||
+    "문제를 해결하고 목표를 달성하기 위해 우선순위를 정하고 실행 계획을 수립했습니다.";
+  const usedAction =
+    selectedVersion?.action ||
+    parsedStar.action ||
+    "실행 단계를 정의하고 데이터를 기반으로 개선안을 적용하며 협업으로 완성도를 높였습니다.";
+  const usedResult =
+    selectedVersion?.result || parsedStar.result || "정량/정성 성과를 통해 개선 효과를 확인했습니다.";
+  const actionItems = toBulletItems(usedAction);
+  const resultItems = toBulletItems(usedResult);
+  const handleDeleteVersion = (version: PortfolioVersion) => {
+    const ok = window.confirm("이 포트폴리오 버전을 삭제할까요?");
+    if (!ok) return;
+
+    removePortfolioVersion(version.id);
+    if (version.activityId) {
+      removeActivity(version.activityId);
+    }
+
+    const remaining = getPortfolioVersions().filter((item) => item.id !== version.id);
+    const nextLastScore = remaining[0]?.matchScore ?? null;
+    decrementJobVersion(nextLastScore);
+
+    const latestDashboard = getDashboardState();
+    setJobFitScore(latestDashboard.summary.lastMatchScore ?? 78);
+    setStoredVersions(getPortfolioVersions());
+    if (selectedVersionId === version.id) {
+      setSelectedVersionId(remaining[0]?.id ?? null);
+    }
+  };
 
   return (
     <DashboardLayout>
@@ -73,17 +132,56 @@ export function PortfolioPage() {
           </div>
         </div>
 
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-[16px] font-semibold text-[#1A1A1A]">완성된 포트폴리오</h2>
+            <span className="text-[13px] text-[#6B7280]">총 {allVersions.length}개</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {allVersions.map((version) => {
+              const active = selectedVersion?.id === version.id;
+              return (
+                <div
+                  key={version.id}
+                  className={`text-left border rounded-lg p-4 transition-colors ${
+                    active ? "border-[#0052FF] bg-[#EEF2FF]" : "border-[#E5E7EB] bg-white hover:border-[#D1D5DB]"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <button type="button" onClick={() => setSelectedVersionId(version.id)} className="flex-1 text-left min-w-0">
+                      <p className="text-[14px] font-medium text-[#1A1A1A] truncate">{version.title}</p>
+                      <p className="text-[12px] text-[#6B7280] mt-1">{version.targetRole}</p>
+                      <p className="text-[12px] text-[#6B7280] mt-1">{new Date(version.createdAt).toLocaleString()}</p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteVersion(version)}
+                      className="p-2 rounded-md text-[#9CA3AF] hover:text-[#EF4444] hover:bg-[#FEF2F2]"
+                      aria-label="포트폴리오 삭제"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {allVersions.length === 0 && (
+            <div className="bg-white border border-dashed border-[#E5E7EB] rounded-lg p-6 text-center text-[14px] text-[#6B7280]">
+              아직 생성된 포트폴리오가 없습니다. 직무 맞춤 분석에서 새 포트폴리오를 생성해 주세요.
+            </div>
+          )}
+        </div>
+
         <div className="grid grid-cols-3 gap-6">
           {/* Left - Main Content */}
           <div className="col-span-2 bg-white border border-[#E5E7EB] rounded-lg p-8">
             <div className="mb-6">
               <h2 className="text-[20px] font-semibold text-[#1A1A1A] mb-1">
-                {onboarding.payload.achievement
-                  ? onboarding.payload.achievement.split("\n")[0].slice(0, 60)
-                  : "재고 관리 프로세스 개선을 통한 폐기율 감소"}
+                {selectedVersion?.title || "최종 포트폴리오"}
               </h2>
               <p className="text-[13px] text-[#6B7280]">
-                {onboarding.payload.name || "사용자"} · {onboarding.payload.targetJob || "직무 미입력"}
+                {onboarding.payload.name || "사용자"} · {selectedVersion?.targetRole || onboarding.payload.targetJob || "직무 미입력"}
               </p>
             </div>
 
@@ -109,19 +207,41 @@ export function PortfolioPage() {
               {/* Action */}
               <div>
                 <h3 className="text-[14px] font-semibold text-[#0052FF] mb-2">행동 (Action)</h3>
-                <p className="text-[14px] text-[#374151] leading-[1.6]">
-                  {usedAction ||
-                    "선입선출 원칙 도입, 체크리스트 정착, 팀 협업 프로세스 개선 등 실행 중심으로 문제를 해결했습니다."}
-                </p>
+                {actionItems.length > 0 ? (
+                  <ul className="space-y-2">
+                    {actionItems.map((item, idx) => (
+                      <li key={idx} className="flex items-start gap-2">
+                        <span className="text-[#0052FF] mt-1">•</span>
+                        <p className="text-[14px] text-[#374151] leading-[1.6]">{item}</p>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-[14px] text-[#374151] leading-[1.6]">
+                    선입선출 원칙 도입, 체크리스트 정착, 팀 협업 프로세스 개선 등 실행 중심으로 문제를
+                    해결했습니다.
+                  </p>
+                )}
               </div>
 
               {/* Result */}
               <div>
                 <h3 className="text-[14px] font-semibold text-[#0052FF] mb-2">결과 (Result)</h3>
                 <div className="bg-[#FFFBEB] border border-[#FEF3C7] rounded-lg p-4">
-                  <p className="text-[14px] text-[#374151] leading-[1.6]">
-                    {usedResult || "핵심 성과를 수치와 근거 중심으로 정리해 전달력을 높였습니다."}
-                  </p>
+                  {resultItems.length > 0 ? (
+                    <ul className="space-y-2">
+                      {resultItems.map((item, idx) => (
+                        <li key={idx} className="flex items-start gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-[#10B981] mt-0.5 flex-shrink-0" />
+                          <p className="text-[14px] text-[#374151] leading-[1.6]">{item}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-[14px] text-[#374151] leading-[1.6]">
+                      핵심 성과를 수치와 근거 중심으로 정리해 전달력을 높였습니다.
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -158,7 +278,7 @@ export function PortfolioPage() {
                 </div>
                 <div className="flex justify-between items-center text-[13px]">
                   <span className="opacity-90">직무 적합도</span>
-                  <span className="font-semibold">{Math.round(jobFitScore)}점</span>
+                  <span className="font-semibold">{Math.round(selectedVersion?.matchScore ?? jobFitScore)}점</span>
                 </div>
                 <div className="flex justify-between items-center text-[13px]">
                   <span className="opacity-90">성과 중심</span>
@@ -173,10 +293,13 @@ export function PortfolioPage() {
               <div className="space-y-2">
                 <div className="flex justify-between items-center">
                   <span className="text-[13px] text-[#6B7280]">{onboarding.payload.targetJob || "콘텐츠 마케팅"}</span>
-                  <span className="text-[13px] font-semibold text-[#0052FF]">{Math.round(jobFitScore)}%</span>
+                  <span className="text-[13px] font-semibold text-[#0052FF]">{Math.round(selectedVersion?.matchScore ?? jobFitScore)}%</span>
                 </div>
                 <div className="w-full h-1.5 bg-[#F3F4F6] rounded-full overflow-hidden">
-                  <div className="h-full bg-[#0052FF]" style={{ width: `${Math.max(0, Math.min(100, Math.round(jobFitScore)))}%` }} />
+                  <div
+                    className="h-full bg-[#0052FF]"
+                    style={{ width: `${Math.max(0, Math.min(100, Math.round(selectedVersion?.matchScore ?? jobFitScore)))}%` }}
+                  />
                 </div>
               </div>
             </div>
@@ -185,7 +308,9 @@ export function PortfolioPage() {
             <div className="bg-white border border-[#E5E7EB] rounded-lg p-5">
               <h3 className="text-[14px] font-semibold text-[#1A1A1A] mb-3">개선 제안</h3>
               <ul className="space-y-2">
-                {(interviewResult?.feedback?.length ? interviewResult.feedback : ["구체적인 기간/수치를 보강하면 더 설득력 있습니다."])
+                {((selectedVersion?.feedback?.length ? selectedVersion.feedback : interviewResult?.feedback) || [
+                  "구체적인 기간/수치를 보강하면 더 설득력 있습니다.",
+                ])
                   .slice(0, 3)
                   .map((tip, idx) => (
                     <li key={idx} className="flex items-start gap-2">
@@ -231,18 +356,9 @@ export function PortfolioPage() {
   );
 }
 
-function parseStarSummary(summary: string) {
-  const lines = summary.split("\n");
-  const pick = (prefixes: string[]) => {
-    const line = lines.find((l) => prefixes.some((p) => l.trim().startsWith(p)));
-    if (!line) return "";
-    const idx = line.indexOf(":");
-    return idx >= 0 ? line.slice(idx + 1).trim() : line.trim();
-  };
-  return {
-    situation: pick(["S(상황)", "Situation"]),
-    task: pick(["T(과제)", "Task"]),
-    action: pick(["A(행동)", "Action"]),
-    result: pick(["R(결과)", "Result"]),
-  };
+function toBulletItems(value: string) {
+  return value
+    .split("\n")
+    .map((line) => line.replace(/^[-*•]\s*/, "").trim())
+    .filter(Boolean);
 }
